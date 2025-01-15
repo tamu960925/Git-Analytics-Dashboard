@@ -1,0 +1,297 @@
+// Chart.js configurations
+const chartConfig = {
+    type: 'line',
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+};
+
+let commitChart, changesChart, contributorsChart, slocChart;
+
+function showLoading(show) {
+    const button = document.getElementById('analyzeButton');
+    const buttonText = button.querySelector('.button-text');
+    const spinner = button.querySelector('.loading-spinner');
+    const loadingStatus = document.getElementById('loadingStatus');
+
+    button.disabled = show;
+    buttonText.textContent = show ? '分析中...' : '分析開始';
+    spinner.classList.toggle('hidden', !show);
+    loadingStatus.classList.toggle('hidden', !show);
+}
+
+// Check URL parameters on load
+window.addEventListener('load', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const repoUrl = urlParams.get('repo');
+    if (repoUrl) {
+        document.getElementById('repoUrl').value = repoUrl;
+        analyzeRepo();
+    }
+});
+
+async function analyzeRepo() {
+    const repoUrl = document.getElementById('repoUrl').value;
+    if (!repoUrl) {
+        alert('リポジトリのURLを入力してください');
+        return;
+    }
+
+    if (!repoUrl.match(/^https?:\/\/(github\.com|gitlab\.com|bitbucket\.org)/)) {
+        alert('GitHubまたはGitLab、BitbucketのURLを入力してください');
+        return;
+    }
+
+    // Update URL with repository parameter
+    const url = new URL(window.location);
+    url.searchParams.set('repo', repoUrl);
+    window.history.pushState({}, '', url);
+
+    try {
+        showLoading(true);
+        // Get git log data
+        const gitData = await getGitData(repoUrl);
+        updateDashboard(gitData);
+    } catch (error) {
+        alert('エラーが発生しました: ' + error.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+async function getGitData(repoPath) {
+    try {
+        const response = await fetch(`http://localhost:3000/analyze-repo`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ repoPath })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to analyze repository');
+        }
+
+        const data = await response.json();
+        const commitsByDate = new Map();
+        const commitsByHour = new Map();
+        const commitsByAuthor = new Map();
+        let totalAdditions = 0;
+        let totalDeletions = 0;
+
+        // Parse git log output
+        const lines = data.commitLog.split('\n');
+        let currentCommit = null;
+
+        lines.forEach(line => {
+            if (line.includes('|')) {
+                // This is a commit line
+                const [hash, timestamp, email, name] = line.split('|');
+                const date = new Date(parseInt(timestamp) * 1000);
+                const dateStr = date.toISOString().split('T')[0];
+                const hour = date.getHours();
+
+                commitsByDate.set(dateStr, (commitsByDate.get(dateStr) || 0) + 1);
+                commitsByHour.set(hour, (commitsByHour.get(hour) || 0) + 1);
+                
+                const authorStats = commitsByAuthor.get(email) || {
+                    name,
+                    email,
+                    commits: 0,
+                    additions: 0,
+                    deletions: 0
+                };
+                authorStats.commits++;
+                commitsByAuthor.set(email, authorStats);
+                
+                currentCommit = { hash, date, email, name };
+            } else if (line.trim() && currentCommit) {
+                // This is a stat line
+                const [additions, deletions] = line.split('\t').map(n => parseInt(n) || 0);
+                totalAdditions += additions;
+                totalDeletions += deletions;
+
+                const authorStats = commitsByAuthor.get(currentCommit.email);
+                authorStats.additions += additions;
+                authorStats.deletions += deletions;
+            }
+        });
+
+        return {
+            commitsByDate: Object.fromEntries([...commitsByDate].sort()),
+            commitsByHour: Object.fromEntries([...commitsByHour]),
+            totalCommits: lines.filter(l => l.includes('|')).length,
+            activeDays: commitsByDate.size,
+            peakHour: [...commitsByHour.entries()].sort((a, b) => b[1] - a[1])[0][0],
+            totalAdditions,
+            totalDeletions,
+            contributors: [...commitsByAuthor.values()]
+                .sort((a, b) => b.commits - a.commits),
+            branches: data.branches,
+            sloc: data.sloc
+        };
+    } catch (error) {
+        console.error('Error analyzing repository:', error);
+        throw error;
+    }
+}
+
+function updateCommitChart(data) {
+    const commitDates = Object.keys(data.commitsByDate);
+    const commitCounts = Object.values(data.commitsByDate);
+
+    if (commitChart) {
+        commitChart.destroy();
+    }
+
+    commitChart = new Chart(
+        document.getElementById('commitChart'),
+        {
+            ...chartConfig,
+            data: {
+                labels: commitDates,
+                datasets: [{
+                    label: 'コミット数',
+                    data: commitCounts,
+                    borderColor: '#2563eb',
+                    tension: 0.4
+                }]
+            }
+        }
+    );
+}
+
+function updateChangesChart(data) {
+    if (changesChart) {
+        changesChart.destroy();
+    }
+
+    changesChart = new Chart(
+        document.getElementById('changesChart'),
+        {
+            type: 'bar',
+            data: {
+                labels: ['追加', '削除'],
+                datasets: [{
+                    label: '行数',
+                    data: [data.totalAdditions, data.totalDeletions],
+                    backgroundColor: ['#22c55e', '#ef4444']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        }
+    );
+}
+
+function updateDashboard(data) {
+    // Update existing charts (commit frequency and changes)
+    updateCommitChart(data);
+    updateChangesChart(data);
+    
+    // Update contributors chart
+    if (contributorsChart) {
+        contributorsChart.destroy();
+    }
+
+    const topContributors = data.contributors.slice(0, 5);
+    contributorsChart = new Chart(
+        document.getElementById('contributorsChart'),
+        {
+            type: 'pie',
+            data: {
+                labels: topContributors.map(c => c.name),
+                datasets: [{
+                    data: topContributors.map(c => c.commits),
+                    backgroundColor: [
+                        '#2563eb',
+                        '#7c3aed',
+                        '#db2777',
+                        '#e11d48',
+                        '#ea580c'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        }
+    );
+
+    // Update SLOC chart
+    if (slocChart) {
+        slocChart.destroy();
+    }
+
+    const slocData = Object.entries(data.sloc);
+    slocChart = new Chart(
+        document.getElementById('slocChart'),
+        {
+            type: 'bar',
+            data: {
+                labels: slocData.map(([ext]) => ext),
+                datasets: [{
+                    label: '行数',
+                    data: slocData.map(([, count]) => count),
+                    backgroundColor: '#2563eb'
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        }
+    );
+
+    // Update statistics
+    document.getElementById('totalCommits').textContent = data.totalCommits;
+    document.getElementById('activeDays').textContent = data.activeDays;
+    document.getElementById('peakHour').textContent = `${data.peakHour}:00`;
+    document.getElementById('branchCount').textContent = data.branches.length;
+    document.getElementById('topBranch').textContent = data.branches[0]?.name || '-';
+
+    // Update contributors list
+    const contributorsContainer = document.getElementById('topContributors');
+    contributorsContainer.innerHTML = data.contributors.slice(0, 6).map(c => `
+        <div class="contributor-card">
+            <div class="contributor-info">
+                <div class="contributor-name">${c.name}</div>
+                <div class="contributor-stats">
+                    コミット: ${c.commits} | 追加: ${c.additions} | 削除: ${c.deletions}
+                </div>
+                <div class="contributor-email">${c.email}</div>
+            </div>
+        </div>
+    `).join('');
+}

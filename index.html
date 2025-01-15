@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git Analytics Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Git Analytics Dashboard</h1>
+        
+        <div class="repo-input">
+            <input type="url" id="repoUrl" placeholder="GitリポジトリのURLを入力" pattern="https?://.+">
+            <button onclick="analyzeRepo()" id="analyzeButton">
+                <span class="button-text">分析開始</span>
+                <div class="loading-spinner hidden"></div>
+            </button>
+        </div>
+
+        <div id="loadingStatus" class="loading-status hidden">
+            <div class="loading-message">リポジトリを分析中...</div>
+            <div class="progress-bar">
+                <div class="progress-value"></div>
+            </div>
+        </div>
+
+        <div class="metrics-container">
+            <div class="chart-container">
+                <h2>コミット頻度</h2>
+                <canvas id="commitChart"></canvas>
+            </div>
+            
+            <div class="chart-container">
+                <h2>変更量の推移</h2>
+                <canvas id="changesChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <h2>コミッター統計</h2>
+                <canvas id="contributorsChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <h2>ファイル種類別SLOC</h2>
+                <canvas id="slocChart"></canvas>
+            </div>
+
+            <div class="stats-container">
+                <div class="stat-box">
+                    <h3>総コミット数</h3>
+                    <p id="totalCommits">-</p>
+                </div>
+                <div class="stat-box">
+                    <h3>アクティブ日数</h3>
+                    <p id="activeDays">-</p>
+                </div>
+                <div class="stat-box">
+                    <h3>最も変更の多い時間帯</h3>
+                    <p id="peakHour">-</p>
+                </div>
+
+                <div class="stat-box">
+                    <h3>アクティブなブランチ数</h3>
+                    <p id="branchCount">-</p>
+                </div>
+
+                <div class="stat-box">
+                    <h3>最もアクティブなブランチ</h3>
+                    <p id="topBranch">-</p>
+                </div>
+            </div>
+
+            <div class="contributors-list">
+                <h2>トップコントリビューター</h2>
+                <div id="topContributors" class="contributor-grid"></div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
