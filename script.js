@@ -16,7 +16,7 @@ const chartConfig = {
     }
 };
 
-let commitChart, changesChart, contributorsChart, slocChart;
+let commitChart, changesChart, contributorsChart, slocChart, commitSizeChart;
 
 function showLoading(show) {
     const button = document.getElementById('analyzeButton');
@@ -83,64 +83,7 @@ async function getGitData(repoPath) {
             throw new Error('Failed to analyze repository');
         }
 
-        const data = await response.json();
-        const commitsByDate = new Map();
-        const commitsByHour = new Map();
-        const commitsByAuthor = new Map();
-        let totalAdditions = 0;
-        let totalDeletions = 0;
-
-        // Parse git log output
-        const lines = data.commitLog.split('\n');
-        let currentCommit = null;
-
-        lines.forEach(line => {
-            if (line.includes('|')) {
-                // This is a commit line
-                const [hash, timestamp, email, name] = line.split('|');
-                const date = new Date(parseInt(timestamp) * 1000);
-                const dateStr = date.toISOString().split('T')[0];
-                const hour = date.getHours();
-
-                commitsByDate.set(dateStr, (commitsByDate.get(dateStr) || 0) + 1);
-                commitsByHour.set(hour, (commitsByHour.get(hour) || 0) + 1);
-                
-                const authorStats = commitsByAuthor.get(email) || {
-                    name,
-                    email,
-                    commits: 0,
-                    additions: 0,
-                    deletions: 0
-                };
-                authorStats.commits++;
-                commitsByAuthor.set(email, authorStats);
-                
-                currentCommit = { hash, date, email, name };
-            } else if (line.trim() && currentCommit) {
-                // This is a stat line
-                const [additions, deletions] = line.split('\t').map(n => parseInt(n) || 0);
-                totalAdditions += additions;
-                totalDeletions += deletions;
-
-                const authorStats = commitsByAuthor.get(currentCommit.email);
-                authorStats.additions += additions;
-                authorStats.deletions += deletions;
-            }
-        });
-
-        return {
-            commitsByDate: Object.fromEntries([...commitsByDate].sort()),
-            commitsByHour: Object.fromEntries([...commitsByHour]),
-            totalCommits: lines.filter(l => l.includes('|')).length,
-            activeDays: commitsByDate.size,
-            peakHour: [...commitsByHour.entries()].sort((a, b) => b[1] - a[1])[0][0],
-            totalAdditions,
-            totalDeletions,
-            contributors: [...commitsByAuthor.values()]
-                .sort((a, b) => b.commits - a.commits),
-            branches: data.branches,
-            sloc: data.sloc
-        };
+        return await response.json();
     } catch (error) {
         console.error('Error analyzing repository:', error);
         throw error;
@@ -201,10 +144,63 @@ function updateChangesChart(data) {
     );
 }
 
+function updateCommitSizeChart(stats) {
+    if (commitSizeChart) {
+        commitSizeChart.destroy();
+    }
+
+    const distribution = stats.commitSizeDistribution;
+    commitSizeChart = new Chart(
+        document.getElementById('commitSizeChart'),
+        {
+            type: 'bar',
+            data: {
+                labels: distribution.map(d => d.range),
+                datasets: [{
+                    label: 'コミット数',
+                    data: distribution.map(d => d.count),
+                    backgroundColor: '#2563eb'
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        }
+    );
+}
+
+function updateLargeCommitsList(largeCommits) {
+    const container = document.getElementById('largeCommits');
+    container.innerHTML = largeCommits.map(commit => `
+        <div class="large-commit-card">
+            <div class="commit-hash">${commit.hash}</div>
+            <div class="commit-message">${commit.message}</div>
+            <div class="commit-stats">
+                合計 ${commit.totalChanges} 行の変更
+                ${commit.totalChanges >= 500 ? '<span class="warning">（要レビュー）</span>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
 function updateDashboard(data) {
-    // Update existing charts (commit frequency and changes)
+    // Update charts
     updateCommitChart(data);
     updateChangesChart(data);
+    updateCommitSizeChart(data.commitStats);
     
     // Update contributors chart
     if (contributorsChart) {
@@ -220,13 +216,7 @@ function updateDashboard(data) {
                 labels: topContributors.map(c => c.name),
                 datasets: [{
                     data: topContributors.map(c => c.commits),
-                    backgroundColor: [
-                        '#2563eb',
-                        '#7c3aed',
-                        '#db2777',
-                        '#e11d48',
-                        '#ea580c'
-                    ]
+                    backgroundColor: ['#2563eb', '#7c3aed', '#db2777', '#e11d48', '#ea580c']
                 }]
             },
             options: {
@@ -280,6 +270,13 @@ function updateDashboard(data) {
     document.getElementById('peakHour').textContent = `${data.peakHour}:00`;
     document.getElementById('branchCount').textContent = data.branches.length;
     document.getElementById('topBranch').textContent = data.branches[0]?.name || '-';
+
+    // Update commit quality metrics
+    document.getElementById('averageChanges').textContent = `${data.commitStats.averageChangesPerCommit}行`;
+    document.getElementById('largeCommitRate').textContent = `${data.commitStats.largeCommitPercentage}%`;
+
+    // Update large commits list
+    updateLargeCommitsList(data.commitStats.top5LargestCommits);
 
     // Update contributors list
     const contributorsContainer = document.getElementById('topContributors');

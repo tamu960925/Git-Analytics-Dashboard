@@ -47,7 +47,25 @@
                 <canvas id="slocChart"></canvas>
             </div>
 
+            <div class="chart-container">
+                <h2>コミットサイズの分布</h2>
+                <canvas id="commitSizeChart"></canvas>
+            </div>
+
             <div class="stats-container">
+                <div class="stat-box commit-stats">
+                    <h3>コミット品質指標</h3>
+                    <div class="commit-metrics">
+                        <div class="metric">
+                            <span class="label">平均変更行数:</span>
+                            <span id="averageChanges" class="value">-</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">大規模コミット率:</span>
+                            <span id="largeCommitRate" class="value">-</span>
+                        </div>
+                    </div>
+                </div>
                 <div class="stat-box">
                     <h3>総コミット数</h3>
                     <p id="totalCommits">-</p>
@@ -70,6 +88,11 @@
                     <h3>最もアクティブなブランチ</h3>
                     <p id="topBranch">-</p>
                 </div>
+            </div>
+
+            <div class="large-commits-list">
+                <h2>最大規模のコミット</h2>
+                <div id="largeCommits" class="large-commits-grid"></div>
             </div>
 
             <div class="contributors-list">
