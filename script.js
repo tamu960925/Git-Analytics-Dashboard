@@ -200,7 +200,14 @@ function updateDashboard(data) {
     // Update charts
     updateCommitChart(data);
     updateChangesChart(data);
-    updateCommitSizeChart(data.commitStats);
+    if (data.commitStats) {
+        updateCommitSizeChart(data.commitStats);
+        // Update commit quality metrics
+        document.getElementById('averageChanges').textContent = `${data.commitStats.averageChangesPerCommit}行`;
+        document.getElementById('largeCommitRate').textContent = `${data.commitStats.largeCommitPercentage}%`;
+        // Update large commits list
+        updateLargeCommitsList(data.commitStats.top5LargestCommits);
+    }
     
     // Update contributors chart
     if (contributorsChart) {
@@ -271,12 +278,6 @@ function updateDashboard(data) {
     document.getElementById('branchCount').textContent = data.branches.length;
     document.getElementById('topBranch').textContent = data.branches[0]?.name || '-';
 
-    // Update commit quality metrics
-    document.getElementById('averageChanges').textContent = `${data.commitStats.averageChangesPerCommit}行`;
-    document.getElementById('largeCommitRate').textContent = `${data.commitStats.largeCommitPercentage}%`;
-
-    // Update large commits list
-    updateLargeCommitsList(data.commitStats.top5LargestCommits);
 
     // Update contributors list
     const contributorsContainer = document.getElementById('topContributors');
