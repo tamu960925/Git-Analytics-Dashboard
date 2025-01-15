@@ -83,7 +83,63 @@ async function getGitData(repoPath) {
             throw new Error('Failed to analyze repository');
         }
 
-        return await response.json();
+        const data = await response.json();
+        const commitsByDate = new Map();
+        const commitsByHour = new Map();
+        const commitsByAuthor = new Map();
+        let totalAdditions = 0;
+        let totalDeletions = 0;
+
+        // Parse git log output
+        const lines = data.commitLog.split('\n');
+        let currentCommit = null;
+
+        lines.forEach(line => {
+            if (line.includes('|')) {
+                // This is a commit line
+                const [hash, timestamp, email, name] = line.split('|');
+                const date = new Date(parseInt(timestamp) * 1000);
+                const dateStr = date.toISOString().split('T')[0];
+                const hour = date.getHours();
+
+                commitsByDate.set(dateStr, (commitsByDate.get(dateStr) || 0) + 1);
+                commitsByHour.set(hour, (commitsByHour.get(hour) || 0) + 1);
+                
+                const authorStats = commitsByAuthor.get(email) || {
+                    name,
+                    email,
+                    commits: 0,
+                    additions: 0,
+                    deletions: 0
+                };
+                authorStats.commits++;
+                commitsByAuthor.set(email, authorStats);
+                
+                currentCommit = { hash, date, email, name };
+            } else if (line.trim() && currentCommit) {
+                // This is a stat line
+                const [additions, deletions] = line.split('\t').map(n => parseInt(n) || 0);
+                totalAdditions += additions;
+                totalDeletions += deletions;
+
+                const authorStats = commitsByAuthor.get(currentCommit.email);
+                authorStats.additions += additions;
+                authorStats.deletions += deletions;
+            }
+        });
+
+        return {
+            ...data,
+            commitsByDate: Object.fromEntries([...commitsByDate].sort()),
+            commitsByHour: Object.fromEntries([...commitsByHour]),
+            totalCommits: lines.filter(l => l.includes('|')).length,
+            activeDays: commitsByDate.size,
+            peakHour: [...commitsByHour.entries()].sort((a, b) => b[1] - a[1])[0][0],
+            totalAdditions,
+            totalDeletions,
+            contributors: [...commitsByAuthor.values()]
+                .sort((a, b) => b.commits - a.commits)
+        };
     } catch (error) {
         console.error('Error analyzing repository:', error);
         throw error;
